@@ -99,8 +99,15 @@ class LocalBatchRunner:
                     result = await crawl_service.process_company(
                         company.id, company.domain, use_ai_summary=self._use_ai_summary
                     )
+                    # A Maps listing's placeholder domain may have been
+                    # resolved to the real business domain mid-crawl —
+                    # reflect that in the reported result, not the stale
+                    # placeholder captured before this task started.
                     progress = CompanyProgress(
-                        domain=company.domain, name=company.name, status="done", result=result
+                        domain=result.get("domain") or company.domain,
+                        name=company.name,
+                        status="done",
+                        result=result,
                     )
                 except Exception as exc:
                     logger.error("Company crawl failed", domain=company.domain, error=str(exc))

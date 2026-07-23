@@ -19,6 +19,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any
 
+from sqlalchemy.exc import IntegrityError
+
 from app.config import get_settings
 from app.crawler.adaptive_crawler import AdaptiveCrawler
 from app.extractors.company_extractor import CompanyExtractor
@@ -33,10 +35,12 @@ from app.schemas.email_schema import EmailCreate
 from app.services.confidence_engine import ConfidenceEngine
 from app.services.dedup_service import DedupService
 from app.services.issue_detector import IssueDetector
+from app.services.maps_resolver import MapsResolver, is_pending_maps_domain
 from app.services.summary_service import SummaryService
 from app.storage.database import get_session
 from app.storage.repositories.company_repo import CompanyRepository
 from app.storage.repositories.email_repo import EmailRepository
+from app.validators.domain_validator import DomainValidator
 from app.validators.email_validator import EmailValidator
 
 logger = get_logger(__name__)
@@ -61,6 +65,8 @@ class CrawlService:
         self._adaptive_crawler = AdaptiveCrawler()
         self._issue_detector = IssueDetector()
         self._summary_service = SummaryService()
+        self._maps_resolver = MapsResolver()
+        self._domain_validator = DomainValidator()
 
     async def process_company(
         self,
@@ -83,6 +89,20 @@ class CrawlService:
             await company_repo.update_status(company_id, "crawling")
 
         try:
+            # ---- Step 0: Resolve Google Maps listings to a real website ----
+            # A Maps listing link is a directory page, not the business's own
+            # site — it can never contain the business's email. If this row
+            # came from a Maps export, read the business's actual published
+            # website off the listing itself (never guessed) before crawling.
+            if is_pending_maps_domain(domain):
+                resolved_domain, skip_reason = await self._resolve_maps_listing(company_id)
+                if resolved_domain is None:
+                    # No crawlable site: either the listing has no published
+                    # website, or another row already resolved to the same
+                    # one. Both are honest results, not crawl failures.
+                    return await self._finish_maps_skip(company_id, start, skip_reason)
+                domain = resolved_domain
+
             # ---- Step 1: Crawl ----
             crawl_result = await self._adaptive_crawler.crawl_domain(domain)
 
@@ -93,6 +113,7 @@ class CrawlService:
             dedup = DedupService()
             homepage_response = None
             homepage_parsed = None
+            crawl_records: list[CrawlResult] = []
 
             for page in crawl_result.pages:
                 if homepage_response is None and page.url == crawl_result.base_url:
@@ -204,9 +225,12 @@ class CrawlService:
                 if page.engine_used not in engines_used:
                     engines_used.append(page.engine_used)
 
-                # Store crawl result
-                async with get_session() as session:
-                    crawl_rec = CrawlResult(
+                # Collect crawl result (stored in one batched transaction
+                # after the loop — one write transaction per company, not
+                # one per page, to avoid "database is locked" contention
+                # when several crawling agents write concurrently).
+                crawl_records.append(
+                    CrawlResult(
                         company_id=company_id,
                         url=page.url,
                         final_url=page.response.final_url,
@@ -222,7 +246,11 @@ class CrawlService:
                         redirect_chain=page.response.redirect_chain,
                         tech_stack=tech if tech else None,
                     )
-                    session.add(crawl_rec)
+                )
+
+            if crawl_records:
+                async with get_session() as session:
+                    session.add_all(crawl_records)
 
             # ---- Step 4b: Detect website issues (deterministic) ----
             detected_issues = self._issue_detector.detect(
@@ -290,6 +318,83 @@ class CrawlService:
                     company_id, "failed", error_message=str(exc)
                 )
             raise
+
+    async def _resolve_maps_listing(
+        self, company_id: uuid.UUID
+    ) -> tuple[str | None, str | None]:
+        """
+        Resolve a pending Google Maps placeholder to the business's real
+        website, updating the company's domain/website in place.
+
+        Returns (resolved_domain, skip_reason). skip_reason is only set when
+        resolved_domain is None, and is one of "no_website" (the listing has
+        nothing published) or "duplicate_listing" (another row in this batch
+        already resolved to the same real site).
+        """
+        async with get_session() as session:
+            company = await CompanyRepository(session).get_by_id(company_id)
+        maps_url = company.website if company else None
+        if not maps_url:
+            return None, "no_website"
+
+        resolved_url = await self._maps_resolver.resolve(maps_url)
+        if not resolved_url:
+            return None, "no_website"
+
+        resolved_domain = self._domain_validator.normalize(resolved_url)
+        if not resolved_domain:
+            return None, "no_website"
+
+        try:
+            async with get_session() as session:
+                company_repo = CompanyRepository(session)
+                existing = await company_repo.get_by_domain(resolved_domain)
+                if existing and existing.id != company_id:
+                    return None, "duplicate_listing"
+                await company_repo.update_metadata(
+                    company_id, {"domain": resolved_domain, "website": resolved_url}
+                )
+        except IntegrityError:
+            # Lost a race with a concurrent worker resolving to the same site.
+            return None, "duplicate_listing"
+
+        return resolved_domain, None
+
+    async def _finish_maps_skip(
+        self, company_id: uuid.UUID, start: float, reason: str | None
+    ) -> dict[str, Any]:
+        """Finalize a Maps-sourced company that has no site to crawl."""
+        issue_summary = (
+            "No website listed on Google Maps"
+            if reason == "no_website"
+            else "Same website as another listing in this batch"
+        )
+        async with get_session() as session:
+            company_repo = CompanyRepository(session)
+            await company_repo.update_metadata(
+                company_id,
+                {
+                    "status": "completed",
+                    "website_issues": [issue_summary],
+                    "issue_summary": issue_summary,
+                },
+            )
+        duration_ms = (time.monotonic() - start) * 1000
+        summary = {
+            "company_id": str(company_id),
+            "domain": None,
+            "pages_crawled": 0,
+            "emails_stored": 0,
+            "engines_used": [],
+            "duration_ms": round(duration_ms, 2),
+            "status": "completed",
+            "website_issues": [issue_summary],
+            "issue_summary": issue_summary,
+        }
+        logger.info("Company skipped (Maps listing)", reason=reason, **{
+            k: v for k, v in summary.items() if k not in ("website_issues", "issue_summary")
+        })
+        return summary
 
     async def close(self) -> None:
         """Release crawler resources."""

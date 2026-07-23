@@ -52,7 +52,7 @@ def get_engine() -> AsyncEngine:
             def _set_sqlite_pragmas(dbapi_connection, _record) -> None:
                 cursor = dbapi_connection.cursor()
                 cursor.execute("PRAGMA journal_mode=WAL")
-                cursor.execute("PRAGMA busy_timeout=5000")
+                cursor.execute("PRAGMA busy_timeout=30000")
                 cursor.close()
         else:
             _engine = create_async_engine(

@@ -6,6 +6,7 @@ Supports columns: company_name, website, domain (auto-detects).
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import uuid
 from typing import Any
@@ -15,6 +16,7 @@ from app.logging import get_logger
 from app.queue.job import CrawlJob
 from app.queue.queue_manager import QueueManager
 from app.schemas.company_schema import CompanyCreate
+from app.services.maps_resolver import is_maps_url
 from app.storage.database import get_session
 from app.storage.repositories.company_repo import CompanyRepository
 from app.validators.domain_validator import DomainValidator
@@ -86,13 +88,25 @@ class ImportService:
                 skipped += 1
                 continue
 
-            # Normalize and validate domain
-            domain = self._domain_validator.normalize(raw_domain)
-            if not domain:
-                logger.warning("Invalid domain in CSV", row=row_num, value=raw_domain)
-                skipped += 1
-                errors.append(f"Row {row_num}: invalid domain '{raw_domain}'")
-                continue
+            website_override: str | None = None
+
+            if is_maps_url(raw_domain):
+                # This is a Google Maps listing link, not the business's own
+                # site — crawling maps.google.com would never find a real
+                # business email. Keep each listing as a distinct pending
+                # company (a real domain is resolved later, concurrently,
+                # during the crawl phase) instead of collapsing every row
+                # to "google.com" and silently discarding 99% of the batch.
+                domain = self._make_maps_placeholder(raw_domain)
+                website_override = raw_domain
+            else:
+                # Normalize and validate domain
+                domain = self._domain_validator.normalize(raw_domain)
+                if not domain:
+                    logger.warning("Invalid domain in CSV", row=row_num, value=raw_domain)
+                    skipped += 1
+                    errors.append(f"Row {row_num}: invalid domain '{raw_domain}'")
+                    continue
 
             # Sanitize name (prevent injection)
             name = self._sanitize_string(raw_name) if raw_name else None
@@ -103,7 +117,7 @@ class ImportService:
                     company_data = CompanyCreate(
                         name=name,
                         domain=domain,
-                        website=f"https://{domain}",
+                        website=website_override or f"https://{domain}",
                         source_file=source_file,
                         source_row=row_num,
                     )
@@ -143,6 +157,15 @@ class ImportService:
         }
         logger.info("CSV import complete", **{k: v for k, v in summary.items() if k != "errors"})
         return summary
+
+    def _make_maps_placeholder(self, maps_url: str) -> str:
+        """
+        Deterministic synthetic domain for an unresolved Google Maps listing,
+        so distinct listings don't collide on the `domain` unique constraint
+        before their real website is resolved during the crawl phase.
+        """
+        digest = hashlib.sha1(maps_url.encode("utf-8")).hexdigest()[:16]
+        return f"maps-{digest}.pending"
 
     def _detect_column(self, headers: list[str], aliases: set[str]) -> str | None:
         """Find the first matching column from a set of aliases."""
