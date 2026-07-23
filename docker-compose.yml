@@ -1,0 +1,123 @@
+version: "3.9"
+
+networks:
+  lead_net:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+
+services:
+  # ---------------------------------------------------------------------------
+  # PostgreSQL
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    container_name: lead_postgres
+    environment:
+      POSTGRES_USER: crawler
+      POSTGRES_PASSWORD: crawler
+      POSTGRES_DB: lead_intelligence
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    networks:
+      - lead_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crawler -d lead_intelligence"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Redis
+  # ---------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: lead_redis
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - lead_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ---------------------------------------------------------------------------
+  # Crawler API
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    container_name: lead_api
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://crawler:crawler@postgres:5432/lead_intelligence
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    networks:
+      - lead_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["python", "scripts/run_api.py"]
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+
+  # ---------------------------------------------------------------------------
+  # Crawl Worker
+  # ---------------------------------------------------------------------------
+  worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.worker
+    container_name: lead_worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://crawler:crawler@postgres:5432/lead_intelligence
+      REDIS_URL: redis://redis:6379/0
+    networks:
+      - lead_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    command: ["python", "scripts/run_worker.py"]
+    volumes:
+      - ./output:/app/output
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+    deploy:
+      replicas: 2
+
+  # ---------------------------------------------------------------------------
+  # MinIO (Optional object storage for HTML/PDF/screenshots)
+  # ---------------------------------------------------------------------------
+  minio:
+    image: minio/minio:latest
+    container_name: lead_minio
+    profiles: ["storage"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - lead_net
+    volumes:
+      - ./temp/minio:/data

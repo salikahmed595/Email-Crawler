@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y \
+    gcc \
+    libpq-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+RUN pip install --no-cache-dir uv && \
+    uv pip install --system --no-cache -e .
+
+RUN playwright install chromium && playwright install-deps chromium
+
+COPY app/ ./app/
+COPY scripts/ ./scripts/
+COPY migrations/ ./migrations/
+COPY alembic.ini ./
+
+RUN mkdir -p output logs temp
+
+CMD ["python", "scripts/run_worker.py"]

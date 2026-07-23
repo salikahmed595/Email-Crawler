@@ -1,0 +1,11 @@
+company_name,website
+NonExistent,thisdomaindoesnotexist99999.com
+Broken SSL,expired.badssl.com
+Empty Domain,
+Invalid Domain,.notadomain
+Example Placeholder,example.com
+Too Long,aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.com
+Localhost Attack,localhost
+No TLD,nodottld
+IP Address,192.168.1.1
+Timeout Site,httpstat.us/408

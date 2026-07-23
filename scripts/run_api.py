@@ -1,0 +1,31 @@
+"""
+run_api.py — Start the FastAPI server.
+
+Usage:
+    python scripts/run_api.py
+    python scripts/run_api.py --host 0.0.0.0 --port 8000
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Start the Lead Intelligence API")
+    parser.add_argument("--host", default="0.0.0.0")
+    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--reload", action="store_true", help="Enable auto-reload (dev only)")
+    args = parser.parse_args()
+
+    import uvicorn
+    uvicorn.run(
+        "app.api.main:app",
+        host=args.host,
+        port=args.port,
+        reload=args.reload,
+        log_level="debug",
+    )

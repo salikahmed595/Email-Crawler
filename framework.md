@@ -1,0 +1,887 @@
+# FRAMEWORK.md
+
+# Lead Intelligence & Email Discovery Framework
+
+Version: 1.0
+
+---
+
+# Vision
+
+Build a world-class Lead Intelligence Engine capable of processing millions of businesses with enterprise-grade reliability.
+
+The system is designed around deterministic engineering, not AI.
+
+Its primary purpose is to discover, validate, enrich, and organize business contact information with the highest possible accuracy while maintaining exceptional speed, scalability, and maintainability.
+
+The architecture must remain modular so that every component can evolve independently.
+
+---
+
+# Core Philosophy
+
+This system is an engineering platform.
+
+It is NOT an AI application.
+
+AI should never be required for:
+
+• Crawling
+• Parsing
+• Extraction
+• Validation
+• Deduplication
+• Technology Detection
+• Contact Discovery
+• Business Data Collection
+
+Every one of these problems has deterministic solutions that are faster, cheaper, easier to debug, and significantly more scalable.
+
+The only optional AI layer exists after structured data has already been collected.
+
+The crawler itself must consume zero AI credits.
+
+---
+
+# Architectural Principles
+
+The architecture must satisfy the following principles.
+
+## Modular
+
+Every subsystem is independent.
+
+Replacing one component must never require changing another component.
+
+Example
+
+Crawler
+
+↓
+
+Parser
+
+↓
+
+Extractor
+
+↓
+
+Validator
+
+↓
+
+Storage
+
+↓
+
+API
+
+Each should function independently.
+
+---
+
+## Stateless Workers
+
+Crawler workers must never store internal state.
+
+State belongs in
+
+Redis
+
+PostgreSQL
+
+Object Storage
+
+This allows unlimited horizontal scaling.
+
+---
+
+## Queue Driven
+
+Never directly call one module from another.
+
+Everything should communicate through queues.
+
+Input Queue
+
+↓
+
+Crawl Queue
+
+↓
+
+Parse Queue
+
+↓
+
+Extract Queue
+
+↓
+
+Validation Queue
+
+↓
+
+Storage Queue
+
+↓
+
+Export Queue
+
+This architecture enables retries, scaling, monitoring, and fault isolation.
+
+---
+
+## Event Driven
+
+Every major operation emits events.
+
+Examples
+
+Website Discovered
+
+Website Crawled
+
+Email Found
+
+Email Validated
+
+PDF Downloaded
+
+Technology Detected
+
+Company Completed
+
+Workers subscribe only to events they need.
+
+---
+
+# Processing Pipeline
+
+CSV Import
+
+↓
+
+Website Discovery
+
+↓
+
+Domain Validation
+
+↓
+
+Queue Creation
+
+↓
+
+Website Crawl
+
+↓
+
+HTML Parsing
+
+↓
+
+Structured Extraction
+
+↓
+
+Email Discovery
+
+↓
+
+Email Validation
+
+↓
+
+Company Enrichment
+
+↓
+
+Deduplication
+
+↓
+
+Database Storage
+
+↓
+
+JSON Export
+
+Every stage must be isolated.
+
+---
+
+# Crawler Framework
+
+The crawler must support multiple engines.
+
+Static Engine
+
+Scrapy
+
+High performance
+
+Low memory
+
+Fast
+
+JavaScript Engine
+
+Playwright
+
+Used only when required.
+
+Document Engine
+
+PyMuPDF
+
+PDF extraction
+
+OCR Engine
+
+PaddleOCR
+
+Activated only when necessary.
+
+Each engine should implement the same interface.
+
+crawl()
+
+parse()
+
+extract()
+
+validate()
+
+This allows engines to be swapped without changing business logic.
+
+---
+
+# Adaptive Crawling
+
+Never use the most expensive crawler first.
+
+Processing order
+
+1
+
+HTTP Request
+
+↓
+
+2
+
+Static HTML
+
+↓
+
+3
+
+HTML Parsing
+
+↓
+
+4
+
+Missing Information?
+
+↓
+
+No
+
+Finish
+
+↓
+
+Yes
+
+↓
+
+Playwright
+
+↓
+
+Still Missing?
+
+↓
+
+Search PDFs
+
+↓
+
+Still Missing?
+
+↓
+
+OCR
+
+↓
+
+Complete
+
+Always use the cheapest successful strategy.
+
+---
+
+# Data Collection Layers
+
+Layer 1
+
+Website Discovery
+
+Layer 2
+
+HTML
+
+Layer 3
+
+Metadata
+
+Layer 4
+
+Schema.org
+
+Layer 5
+
+JSON-LD
+
+Layer 6
+
+JavaScript
+
+Layer 7
+
+PDF
+
+Layer 8
+
+Images
+
+Layer 9
+
+Sitemap
+
+Layer 10
+
+Robots
+
+Layer 11
+
+RSS
+
+Layer 12
+
+OpenGraph
+
+Layer 13
+
+Microdata
+
+Each layer enriches previous layers.
+
+---
+
+# Email Discovery Strategy
+
+Search order
+
+mailTo links
+
+↓
+
+Visible HTML
+
+↓
+
+Footer
+
+↓
+
+Header
+
+↓
+
+Contact Page
+
+↓
+
+About
+
+↓
+
+Team
+
+↓
+
+Schema
+
+↓
+
+JSON-LD
+
+↓
+
+JavaScript
+
+↓
+
+Comments
+
+↓
+
+Base64
+
+↓
+
+Unicode
+
+↓
+
+Character Encoding
+
+↓
+
+Cloudflare Protected Emails
+
+↓
+
+PDF
+
+↓
+
+OCR
+
+Every email must retain
+
+Source
+
+Method
+
+Page
+
+Confidence
+
+Timestamp
+
+---
+
+# Validation Framework
+
+Validation occurs in independent stages.
+
+Stage 1
+
+Normalization
+
+↓
+
+Stage 2
+
+Syntax
+
+↓
+
+Stage 3
+
+Domain
+
+↓
+
+Stage 4
+
+DNS
+
+↓
+
+Stage 5
+
+MX
+
+↓
+
+Stage 6
+
+SMTP
+
+↓
+
+Stage 7
+
+Disposable Detection
+
+↓
+
+Stage 8
+
+Role Detection
+
+↓
+
+Stage 9
+
+Duplicate Detection
+
+↓
+
+Stage 10
+
+Confidence Calculation
+
+Each validator must be replaceable.
+
+---
+
+# Confidence Engine
+
+Confidence is calculated from evidence.
+
+Positive signals
+
+Official website
+
+Mailto
+
+Contact page
+
+Found multiple times
+
+MX valid
+
+SMTP valid
+
+Company domain
+
+Negative signals
+
+Third-party source
+
+Malformed
+
+Disposable
+
+Temporary email
+
+No MX
+
+Unknown domain
+
+Confidence is deterministic.
+
+Never generated by AI.
+
+---
+
+# Extraction Framework
+
+Every extractor returns
+
+Value
+
+Confidence
+
+Source
+
+Method
+
+Timestamp
+
+Never return plain strings.
+
+Everything is metadata-rich.
+
+---
+
+# Business Intelligence Framework
+
+Collect
+
+Company Name
+
+Business Category
+
+Industry
+
+Description
+
+Phone
+
+Email
+
+Address
+
+Website
+
+Social Links
+
+Services
+
+Products
+
+Locations
+
+Opening Hours
+
+Team Members
+
+Technologies
+
+Booking Software
+
+Contact Forms
+
+CMS
+
+Analytics
+
+Chat Widget
+
+Business Summary
+
+Everything must reference its source.
+
+---
+
+# Storage Framework
+
+PostgreSQL
+
+Stores
+
+Companies
+
+Emails
+
+Phone Numbers
+
+Crawl Results
+
+Validation
+
+Technologies
+
+Logs
+
+Redis
+
+Stores
+
+Queues
+
+Jobs
+
+Locks
+
+Rate Limits
+
+Retries
+
+Object Storage
+
+Stores
+
+HTML
+
+PDFs
+
+Screenshots
+
+Raw Responses
+
+Logs
+
+---
+
+# Performance Framework
+
+The crawler must support
+
+Millions of domains
+
+Parallel workers
+
+Incremental crawling
+
+Checkpoint recovery
+
+Caching
+
+Rate limiting
+
+Automatic retries
+
+Worker autoscaling
+
+Memory optimization
+
+Connection pooling
+
+Streaming parsers
+
+Non-blocking I/O
+
+Async networking
+
+Zero unnecessary rendering
+
+---
+
+# Reliability Framework
+
+Every worker must
+
+Retry failures
+
+Recover after restart
+
+Resume incomplete jobs
+
+Log every action
+
+Handle exceptions
+
+Detect dead workers
+
+Detect stuck jobs
+
+Automatically recover
+
+Never lose progress.
+
+---
+
+# Monitoring Framework
+
+Track
+
+Jobs per minute
+
+Domains per hour
+
+Emails discovered
+
+Validation success
+
+Average crawl time
+
+Memory usage
+
+CPU usage
+
+Worker health
+
+Queue length
+
+Retry rate
+
+Error rate
+
+Duplicate rate
+
+Every metric should be observable.
+
+---
+
+# Security Framework
+
+Sanitize all inputs.
+
+Validate URLs.
+
+Block unsupported protocols.
+
+Prevent SSRF.
+
+Prevent command injection.
+
+Prevent directory traversal.
+
+Prevent HTML injection.
+
+Sandbox browser execution.
+
+Respect robots.txt where appropriate.
+
+Protect stored data.
+
+Never expose internal infrastructure.
+
+---
+
+# Scalability Framework
+
+Every component must scale independently.
+
+Crawler
+
+Validation
+
+Storage
+
+API
+
+Export
+
+Monitoring
+
+Workers
+
+No module should become a bottleneck.
+
+---
+
+# Development Standards
+
+SOLID Principles
+
+Clean Architecture
+
+Repository Pattern
+
+Dependency Injection
+
+Type Safety
+
+Async First
+
+Reusable Components
+
+Configuration Driven
+
+Environment Based Settings
+
+Strict Logging
+
+Strict Error Handling
+
+No hardcoded values
+
+No duplicated business logic
+
+High test coverage
+
+---
+
+# Design Goal
+
+The final system should behave like an enterprise lead intelligence platform—not a simple email scraper.
+
+It should maximize:
+
+• Email discovery accuracy
+• Validation quality
+• Crawl efficiency
+• Fault tolerance
+• Maintainability
+• Scalability
+
+while minimizing:
+
+• Resource usage
+• False positives
+• Duplicate data
+• Unnecessary crawling
+• Operational cost
+
+The crawler must be capable of processing millions of websites with zero dependence on AI APIs, relying entirely on deterministic, open-source technologies and evidence-based extraction.
