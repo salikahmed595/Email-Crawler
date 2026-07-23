@@ -188,8 +188,11 @@ class CrawlService:
                         )
                     )
 
-                # Extract company metadata from first successful page
-                if not company_metadata and parsed.schema_org:
+                # Extract company metadata from the first successful page.
+                # Extractor already falls back through Schema.org -> OpenGraph
+                # -> HTML meta description, so this must run even when the
+                # page has no Schema.org markup (most small business sites).
+                if not company_metadata:
                     company_metadata = self._company_extractor.extract(parsed, domain)
 
                 # Extract phone numbers
@@ -257,11 +260,23 @@ class CrawlService:
                 homepage_response, homepage_parsed, crawl_result.pages
             )
             issue_summary = self._issue_detector.summarize(detected_issues)
+            company_name_hint = company_metadata.get("name") if company_metadata else None
             if use_ai_summary:
-                company_name_hint = company_metadata.get("name") if company_metadata else None
                 issue_summary = await self._summary_service.polish(
                     company_name_hint, detected_issues, issue_summary
                 )
+
+            # ---- Step 4c: Business summary (what they do), from real
+            # crawled facts only — never invented ----
+            business_summary = self._summary_service.deterministic_business_summary(
+                company_metadata
+            )
+            if use_ai_summary:
+                business_summary = await self._summary_service.business_summary(
+                    company_name_hint, business_summary
+                )
+            address = (company_metadata or {}).get("address") or {}
+            state = address.get("state") if isinstance(address, dict) else None
 
             # ---- Step 5: Store emails ----
             async with get_session() as session:
@@ -279,6 +294,7 @@ class CrawlService:
                     "status": "completed",
                     "website_issues": [text for _, text in detected_issues],
                     "issue_summary": issue_summary,
+                    "business_summary": business_summary,
                 }
                 if company_metadata:
                     for field in [
@@ -294,15 +310,22 @@ class CrawlService:
             summary = {
                 "company_id": str(company_id),
                 "domain": domain,
+                "name": company_name_hint,
                 "pages_crawled": len(crawl_result.pages),
                 "emails_stored": stored_count,
+                "emails": sorted({e.address for e in all_emails}),
                 "engines_used": engines_used,
                 "duration_ms": round(duration_ms, 2),
                 "status": "completed",
                 "website_issues": [text for _, text in detected_issues],
                 "issue_summary": issue_summary,
+                "business_summary": business_summary,
+                "state": state,
             }
-            logger.info("Company completed", **summary)
+            logger.info(
+                "Company completed",
+                **{k: v for k, v in summary.items() if k not in ("business_summary", "emails")},
+            )
             return summary
 
         except Exception as exc:
@@ -369,6 +392,7 @@ class CrawlService:
             if reason == "no_website"
             else "Same website as another listing in this batch"
         )
+        business_summary = "No business description found on site."
         async with get_session() as session:
             company_repo = CompanyRepository(session)
             await company_repo.update_metadata(
@@ -377,19 +401,24 @@ class CrawlService:
                     "status": "completed",
                     "website_issues": [issue_summary],
                     "issue_summary": issue_summary,
+                    "business_summary": business_summary,
                 },
             )
         duration_ms = (time.monotonic() - start) * 1000
         summary = {
             "company_id": str(company_id),
             "domain": None,
+            "name": None,
             "pages_crawled": 0,
             "emails_stored": 0,
+            "emails": [],
             "engines_used": [],
             "duration_ms": round(duration_ms, 2),
             "status": "completed",
             "website_issues": [issue_summary],
             "issue_summary": issue_summary,
+            "business_summary": business_summary,
+            "state": None,
         }
         logger.info("Company skipped (Maps listing)", reason=reason, **{
             k: v for k, v in summary.items() if k not in ("website_issues", "issue_summary")

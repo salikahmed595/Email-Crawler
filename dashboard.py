@@ -107,10 +107,12 @@ if uploaded is not None:
             result = progress.result or {}
             live_rows.append(
                 {
-                    "Company": progress.name or progress.domain,
+                    "Company": result.get("name") or progress.name or progress.domain,
                     "Domain": progress.domain,
+                    "State": result.get("state") or "",
                     "Status": progress.status,
-                    "Emails found": result.get("emails_stored", 0),
+                    "Emails": ", ".join(result.get("emails", [])),
+                    "Business summary": result.get("business_summary", ""),
                     "Engines used": ", ".join(result.get("engines_used", [])),
                     "Issue summary": result.get("issue_summary", progress.error or ""),
                 }
@@ -146,16 +148,20 @@ if results:
             continue
         result = progress.result
         all_engines.update(result.get("engines_used", []))
-        row_base = {
-            "Company": progress.name or progress.domain,
+        emails = result.get("emails", [])
+        row = {
+            "Company": result.get("name") or progress.name or progress.domain,
+            "Emails": ", ".join(emails),
+            "Business summary": result.get("business_summary", ""),
+            "State": result.get("state") or "",
             "Domain": progress.domain,
             "Engines used": ", ".join(result.get("engines_used", [])),
             "Issue summary": result.get("issue_summary", ""),
         }
-        if result.get("emails_stored", 0) > 0:
-            leads.append({**row_base, "Emails found": result.get("emails_stored", 0)})
+        if emails:
+            leads.append(row)
         else:
-            no_email.append(row_base)
+            no_email.append(row)
 
     st.subheader(f"Leads with a real email found ({len(leads)})")
     leads_df = pd.DataFrame(leads)

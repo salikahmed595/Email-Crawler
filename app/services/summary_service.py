@@ -11,12 +11,16 @@ summary unchanged — it never blocks or fails the pipeline.
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.config import get_settings
 from app.logging import get_logger
 
 logger = get_logger(__name__)
 
 _MAX_SUMMARY_LENGTH = 100
+_MAX_BUSINESS_SUMMARY_LENGTH = 800
+_NO_BUSINESS_DATA = "No business description found on site."
 
 
 class SummaryService:
@@ -70,5 +74,76 @@ class SummaryService:
                 return polished[:_MAX_SUMMARY_LENGTH]
         except Exception as exc:
             logger.warning("OpenAI summary polish failed, using deterministic summary", error=str(exc))
+
+        return deterministic_summary
+
+    def deterministic_business_summary(self, company_metadata: dict[str, Any] | None) -> str:
+        """
+        Build a "what do they do" summary purely from facts already
+        extracted from the site (meta/schema description, services,
+        industry) — never invented. Honest "no data" message if the site
+        published nothing usable.
+        """
+        metadata = company_metadata or {}
+        description = (metadata.get("description") or "").strip()
+        services = [s for s in (metadata.get("services") or []) if s]
+        industry = metadata.get("industry") or metadata.get("category")
+
+        parts: list[str] = []
+        if description:
+            parts.append(description)
+        if services:
+            parts.append("Services: " + ", ".join(services[:6]) + ".")
+        if industry:
+            parts.append(f"Industry: {industry}.")
+
+        if not parts:
+            return _NO_BUSINESS_DATA
+        return " ".join(parts)[:_MAX_BUSINESS_SUMMARY_LENGTH]
+
+    async def business_summary(
+        self,
+        company_name: str | None,
+        deterministic_summary: str,
+    ) -> str:
+        """
+        Optionally rewrite the deterministic business summary into a
+        natural 3-4 sentence description via OpenAI — using ONLY the real
+        extracted facts already in `deterministic_summary` as input, never
+        adding new facts. Always falls back to the deterministic version.
+        """
+        if not self.available or deterministic_summary == _NO_BUSINESS_DATA:
+            return deterministic_summary
+
+        try:
+            from openai import AsyncOpenAI
+        except ImportError:
+            logger.warning("openai package not installed; skipping business summary polish")
+            return deterministic_summary
+
+        prompt = (
+            f"Using ONLY the facts below about the business "
+            f"'{company_name or 'this business'}', write a 3-4 sentence summary "
+            f"of what they do and how. Do not invent, assume, or add any fact "
+            f"that isn't stated below.\n\nFacts: {deterministic_summary}"
+        )
+
+        try:
+            client = AsyncOpenAI(api_key=self._settings.openai_api_key)
+            response = await client.chat.completions.create(
+                model=self._settings.openai_model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=200,
+                temperature=0.3,
+                timeout=12,
+            )
+            polished = (response.choices[0].message.content or "").strip().strip('"')
+            if polished:
+                return polished[:_MAX_BUSINESS_SUMMARY_LENGTH]
+        except Exception as exc:
+            logger.warning(
+                "OpenAI business summary polish failed, using deterministic summary",
+                error=str(exc),
+            )
 
         return deterministic_summary

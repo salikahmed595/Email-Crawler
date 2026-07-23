@@ -48,6 +48,10 @@ class Company(Base, TimestampMixin):
 
     # Enriched business data (stored as JSONB for flexibility)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # 3-4 line "what they do" summary built from real crawled content
+    # (meta/schema description + services), optionally polished by AI —
+    # see app/services/summary_service.py. Never fabricated from nothing.
+    business_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
     industry: Mapped[str | None] = mapped_column(String(255), nullable=True)
     category: Mapped[str | None] = mapped_column(String(255), nullable=True)
     address: Mapped[dict | None] = mapped_column(JSON, nullable=True)

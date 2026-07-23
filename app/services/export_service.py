@@ -76,6 +76,10 @@ class ExportService:
                         "website": company.website,
                         "status": company.status,
                         "description": company.description,
+                        "business_summary": company.business_summary,
+                        "state": (company.address or {}).get("state")
+                        if isinstance(company.address, dict)
+                        else None,
                         "industry": company.industry,
                         "category": company.category,
                         "address": company.address,
@@ -148,6 +152,10 @@ class ExportService:
             "website": company.website,
             "status": company.status,
             "description": company.description,
+            "business_summary": company.business_summary,
+            "state": (company.address or {}).get("state")
+            if isinstance(company.address, dict)
+            else None,
             "address": company.address,
             "phone_numbers": company.phone_numbers,
             "social_links": company.social_links,
