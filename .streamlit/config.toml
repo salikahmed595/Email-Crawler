@@ -1,0 +1,11 @@
+[client]
+# Hides Streamlit's built-in "Deploy" button (Streamlit Community Cloud) —
+# irrelevant here since this app is deployed on Railway, and the button
+# just confused users into thinking there was a connection error.
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
+
+[server]
+headless = true

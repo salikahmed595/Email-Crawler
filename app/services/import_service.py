@@ -54,15 +54,21 @@ class ImportService:
             raise ValueError("CSV file has no headers")
 
         headers = [h.strip().lower() for h in reader.fieldnames]
+        # DictReader keys use the CSV's original header casing, not the
+        # lowercased aliases above — map back to the real key for row lookups.
+        original_by_lower = dict(zip(headers, reader.fieldnames))
 
         # Detect domain and name columns
-        domain_col = self._detect_column(headers, _DOMAIN_COLUMNS)
-        name_col = self._detect_column(headers, _NAME_COLUMNS)
+        domain_col_lower = self._detect_column(headers, _DOMAIN_COLUMNS)
+        name_col_lower = self._detect_column(headers, _NAME_COLUMNS)
 
-        if not domain_col:
+        if not domain_col_lower:
             raise ValueError(
                 f"CSV must have a domain/website column. Found: {headers}"
             )
+
+        domain_col = original_by_lower[domain_col_lower]
+        name_col = original_by_lower[name_col_lower] if name_col_lower else None
 
         total = 0
         queued = 0
